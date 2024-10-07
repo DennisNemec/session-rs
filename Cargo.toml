@@ -1,0 +1,14 @@
+[package]
+name = "session-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-trait = "0.1.83"
+axum = "0.7.7"
+bson = { version = "2.13.0", features = ["uuid-1"] }
+oauth2 = "4.4.2"
+redis = { version = "0.27.3", features = ["tokio-comp"] }
+serde = "1.0.210"
+serde_json = "1.0.128"
+tokio = { version = "1.40.0", features = ["full"] }
