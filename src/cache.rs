@@ -8,11 +8,10 @@ use redis::{AsyncCommands, Client};
 use serde::{de::DeserializeOwned, Serialize};
 
 #[async_trait::async_trait]
-pub trait TCache {
-    type Error: Display + Debug;
-    type Session: DeserializeOwned + Serialize + Debug + TSession + Send + Sync;
+pub trait TCache: Clone {
+    type Error: Display + Debug + Send + Sync;
 
-    async fn get(&self, key: &String) -> Result<Option<Self::Session>, Self::Error>;
+    async fn get<Data: DeserializeOwned + Serialize + Debug + Send + Sync>(&self, key: &String) -> Result<Option<Data>, Self::Error>;
     async fn delete(&self, key: &String) -> Result<(), Self::Error>;
     async fn set(
         &self,
@@ -37,9 +36,8 @@ impl RedisCache {
 #[async_trait::async_trait]
 impl TCache for RedisCache {
     type Error = AppError;
-    type Session = Session;
 
-    async fn get(&self, key: &String) -> Result<Option<Self::Session>, Self::Error> {
+    async fn get<Data: DeserializeOwned + Serialize + Debug + Send + Sync>(&self, key: &String) -> Result<Option<Data>, Self::Error> {
         let mut connection = self
             .redis_client
             .get_multiplexed_async_connection()
@@ -56,7 +54,7 @@ impl TCache for RedisCache {
         }
 
         Ok(Some(
-            serde_json::from_str::<Self::Session>(result.unwrap().as_str())
+            serde_json::from_str::<Data>(result.unwrap().as_str())
                 .map_err(Self::Error::Json)?,
         ))
     }

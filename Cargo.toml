@@ -5,7 +5,8 @@ edition = "2021"
 
 [dependencies]
 async-trait = "0.1.83"
-axum = "0.7.7"
+axum = { version = "0.7.7", features = ["macros"] }
+axum-extra = { version = "0.9.4", features = ["cookie"] }
 bson = { version = "2.13.0", features = ["uuid-1"] }
 oauth2 = "4.4.2"
 redis = { version = "0.27.3", features = ["tokio-comp"] }

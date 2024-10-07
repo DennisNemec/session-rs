@@ -1,10 +1,14 @@
 use bson::Uuid;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
-    collections::HashMap, sync::{Arc, RwLock}
+    collections::HashMap,
+    fmt::Debug,
+    sync::{Arc, RwLock},
 };
 
 use crate::app::AppError;
+
+pub const SESSION_KEY: &str = "id";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Session {
@@ -42,20 +46,24 @@ impl TSession for Session {
     fn session_id(&self) -> String {
         self.session_id.clone()
     }
-}
 
-pub trait TSessionFactory<Session> {
+    fn user_id(&self) -> String {
+        self.user_id.to_string().clone()
+    }
+}
+pub trait TSessionFactory<Session>: Clone {
     fn make<P: DeserializeOwned + Serialize + Sync + Send>(&self, payload: P) -> Session;
 }
 
 pub trait TSession {
     fn session_id(&self) -> String;
+    fn user_id(&self) -> String;
 }
 
 #[async_trait::async_trait]
-pub trait TSessionHandler {
-    type Session: TSession + Serialize + DeserializeOwned + Send + Sync + 'static;
-    type Error;
+pub trait TSessionHandler: Clone {
+    type Session: TSession + Serialize + DeserializeOwned + Send + Sync + 'static + Clone;
+    type Error: Debug + Sync + Send;
 
     async fn get(&self, id: &String) -> Result<Option<Self::Session>, Self::Error>;
     async fn insert(
@@ -66,15 +74,26 @@ pub trait TSessionHandler {
     async fn delete(&mut self, id: &String) -> Result<(), Self::Error>;
 }
 
-#[derive(Clone)]
-pub struct SessionService {
+#[derive(Clone, Debug)]
+pub struct InMemorySessionService {
     sessions: Arc<RwLock<HashMap<String, Session>>>,
 }
 
-impl SessionService {
+impl InMemorySessionService {
     pub fn new() -> Self {
+        // TODO: remove
+        let mut tmp = HashMap::new();
+        tmp.insert(
+            "test".to_string(),
+            Session {
+                session_id: Uuid::new().to_string(),
+                user_id: Uuid::parse_str("d504295f-b9d9-4742-bd19-842ae87906ce").unwrap(),
+                payload: "".to_string(),
+            },
+        );
+
         Self {
-            sessions: Arc::new(RwLock::new(HashMap::new())),
+            sessions: Arc::new(RwLock::new(tmp)),
         }
     }
 
@@ -97,7 +116,7 @@ impl SessionService {
 }
 
 #[async_trait::async_trait]
-impl TSessionHandler for SessionService {
+impl TSessionHandler for InMemorySessionService {
     type Session = Session;
 
     type Error = AppError;

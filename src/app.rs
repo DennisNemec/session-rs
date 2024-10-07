@@ -1,19 +1,18 @@
 use std::fmt::Display;
 
-use axum::{routing::get, Router};
+use axum::Router;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
-    cache::TCache,
-    gateway::handler,
-    session::{TSession, TSessionFactory, TSessionHandler},
+    cache::TCache, claims::TClaimStore, session::{TSession, TSessionFactory, TSessionHandler}
 };
 
 #[derive(Clone)]
-pub struct AppState<Cache, SessionHandler, SessionFactory> {
+pub struct AppState<Cache, SessionHandler, SessionFactory, ClaimHandler> {
     pub cache: Cache,
     pub session: SessionHandler,
     pub factory: SessionFactory,
+    pub claim: ClaimHandler
 }
 
 pub struct App;
@@ -37,12 +36,15 @@ impl App {
         Cache: TCache + 'static + Clone + Send + Sync,
         SessionHandler: TSessionHandler + 'static + Clone + Send + Sync,
         SessionFactory: TSessionFactory<Session> + 'static + Clone + Send + Sync,
+        ClaimHandler: TClaimStore + 'static + Clone + Send + Sync,
     >(
         address: &str,
         port: u16,
         cache: Cache,
         session: SessionHandler,
         factory: SessionFactory,
+        claim: ClaimHandler,
+        routes: Router<AppState<Cache, SessionHandler, SessionFactory, ClaimHandler>>
     ) -> Result<(), AppError> {
         let listener = tokio::net::TcpListener::bind(format!("{address}:{port}"))
             .await
@@ -51,13 +53,11 @@ impl App {
             cache,
             session,
             factory,
+            claim
         };
 
         let router = Router::new()
-            .route(
-                "/",
-                get(handler::<SessionHandler, Cache, SessionFactory, Session>),
-            )
+            .merge(routes)
             .with_state(state);
 
         axum::serve(listener, router).await.unwrap();
