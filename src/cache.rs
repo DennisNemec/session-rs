@@ -1,23 +1,31 @@
-use std::fmt::{Debug, Display};
+use axum::response::IntoResponse;
+use redis::{AsyncCommands, Client, RedisError};
+use reqwest::StatusCode;
 
-use crate::{
-    app::AppError,
-    session::{Session, TSession},
-};
-use redis::{AsyncCommands, Client};
-use serde::{de::DeserializeOwned, Serialize};
+#[derive(Debug)]
+pub enum CacheError {
+    Redis(RedisError),
+    FormatError(serde_json::Error)
+}
+
+impl IntoResponse for CacheError {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            CacheError::Redis(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Redis connection error").into_response(),
+            CacheError::FormatError(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Invalid data format").into_response(),
+        }
+    }
+}
 
 #[async_trait::async_trait]
 pub trait TCache: Clone {
-    type Error: Display + Debug + Send + Sync;
-
-    async fn get<Data: DeserializeOwned + Serialize + Debug + Send + Sync>(&self, key: &String) -> Result<Option<Data>, Self::Error>;
-    async fn delete(&self, key: &String) -> Result<(), Self::Error>;
+    async fn get(&self, key: &str) -> Result<Option<String>, CacheError>;
+    async fn delete(&self, key: &str) -> Result<(), CacheError>;
     async fn set(
         &self,
-        key: &String,
-        session: impl DeserializeOwned + Serialize + Send + Sync,
-    ) -> Result<(), Self::Error>;
+        key: &str,
+        value: &str,
+    ) -> Result<(), CacheError>;
 }
 
 #[derive(Clone)]
@@ -26,74 +34,67 @@ pub struct RedisCache {
 }
 
 impl RedisCache {
-    pub fn try_new(uri: &str) -> Result<Self, AppError> {
+    pub fn try_new(uri: &str) -> Result<Self, CacheError> {
         Ok(Self {
-            redis_client: Client::open(uri).map_err(AppError::Redis)?,
+            redis_client: Client::open(uri).map_err(CacheError::Redis)?,
         })
     }
 }
 
 #[async_trait::async_trait]
 impl TCache for RedisCache {
-    type Error = AppError;
-
-    async fn get<Data: DeserializeOwned + Serialize + Debug + Send + Sync>(&self, key: &String) -> Result<Option<Data>, Self::Error> {
+    async fn get(&self, key: &str) -> Result<Option<String>, CacheError> {
         let mut connection = self
             .redis_client
             .get_multiplexed_async_connection()
             .await
-            .map_err(Self::Error::Redis)?;
+            .map_err(CacheError::Redis)?;
 
         let result = connection
             .get::<String, Option<String>>(key.to_string())
             .await
-            .map_err(Self::Error::Redis)?;
+            .map_err(CacheError::Redis)?;
 
-        if let None = result {
+        if result.is_none() {
             return Ok(None);
         }
 
-        Ok(Some(
-            serde_json::from_str::<Data>(result.unwrap().as_str())
-                .map_err(Self::Error::Json)?,
-        ))
+        Ok(Some(result.unwrap()))
     }
 
-    async fn delete(&self, key: &String) -> Result<(), Self::Error> {
+    async fn delete(&self, key: &str) -> Result<(), CacheError> {
         let mut connection = self
             .redis_client
             .get_multiplexed_async_connection()
             .await
-            .map_err(Self::Error::Redis)?;
+            .map_err(CacheError::Redis)?;
 
-        let result = connection
-            .del::<&String, i64>(key)
+        connection
+            .del::<&String, i64>(&key.to_string())
             .await
-            .map_err(Self::Error::Redis)?;
-
-        println!("RESULT {result}");
+            .map_err(CacheError::Redis)?;
 
         Ok(())
     }
 
     async fn set(
         &self,
-        key: &String,
-        session: impl DeserializeOwned + Serialize + Send + Sync,
-    ) -> Result<(), Self::Error> {
+        key: &str,
+        value: &str,
+    ) -> Result<(), CacheError> {
         let mut connection = self
             .redis_client
             .get_multiplexed_async_connection()
             .await
-            .map_err(Self::Error::Redis)?;
+            .map_err(CacheError::Redis)?;
 
         connection
-            .set::<&String, String, String>(
+            .set::<&str, &str, String>(
                 key,
-                serde_json::to_string(&session).map_err(Self::Error::Json)?,
+                value,
             )
             .await
-            .map_err(Self::Error::Redis)?;
+            .map_err(CacheError::Redis)?;
 
         Ok(())
     }

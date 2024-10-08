@@ -1,32 +1,47 @@
+#![forbid(unsafe_code)]
+
 use app::App;
 use cache::RedisCache;
-use claims::InMemoryClaimService;
-use oauth::{routes::oauth_routes, OAuth};
-use session::{SessionFactory, InMemorySessionService};
+use modules::auth::{
+    claims::InMemoryClaimService,
+    oauth::{google::GooglePersonEndpoint, routes::oauth_routes, OAuth, OAuthState},
+    session::InMemorySessionService,
+};
 
 pub mod app;
 pub mod cache;
-pub mod claims;
-pub mod oauth;
-pub mod session;
+pub mod modules;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let cache = RedisCache::try_new("redis://localhost:6379")
-        .unwrap_or_else(|e| panic!("Failed to connect to redis: {e:?}"));
-    let session = InMemorySessionService::new();
-    let factory = SessionFactory::new();
-    let claim = InMemoryClaimService::new();
-    let auth = OAuth::new(
-        String::from("value"),
-        String::from("value"),
-        String::from("value"),
-        String::from("value"),
-        String::from("value"),
-        vec![],
+    let cache = RedisCache::try_new("redis://localhost:6379").expect("Failed to connect to redis: {e:?}");
+    let mut session = InMemorySessionService::new();
+    let mut claim = InMemoryClaimService::new();
+
+    // TEST DATA
+    claim.add_claim("d504295f-b9d9-4742-bd19-842ae87906ce", "{}");
+    claim.add_claim("Dennis.nemec98@gmail.com", "{}");
+    session.session_add(
+        "session:d504295f-aaaa-bbbb-cccc-842ae87906ca",
+        "d504295f-b9d9-4742-bd19-842ae87906ce",
     );
 
-    let _ = App::run("localhost", 8000, cache, session, factory, claim, oauth_routes().await).await;
+    let auth = OAuth::new(
+        String::from("CLIENT_ID"),
+        String::from("CLIENT_SECRET"),
+        String::from("https://accounts.google.com/o/oauth2/auth"),
+        String::from("https://oauth2.googleapis.com/token"),
+        String::from("http://localhost:8080/auth/callback"),
+        vec![
+            String::from("https://www.googleapis.com/auth/userinfo.email"),
+            String::from("https://www.googleapis.com/auth/userinfo.profile"),
+        ],
+        GooglePersonEndpoint::new(vec!["names", "emailAddresses"]),
+    );
+
+    let state = OAuthState::new(cache, session, claim, auth);
+
+    let _ = App::run("localhost", 8080, oauth_routes(state)).await;
 
     Ok(())
 }
