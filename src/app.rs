@@ -1,8 +1,14 @@
-use std::fmt::Display;
 use axum::Router;
+use std::fmt::Display;
 
 use crate::{
-    cache::TCache, modules::auth::{claims::TClaimStore, oauth::{OAuthState, TOAuthGetPersonInfo}, session::TSessionHandler, AuthError}
+    cache::TCache,
+    modules::auth::{
+        claims::TClaimStore,
+        oauth::{OAuthState, TOAuthGetPersonInfo},
+        session::TSessionHandler,
+        AuthError,
+    },
 };
 
 pub struct App;

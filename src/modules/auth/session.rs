@@ -13,11 +13,7 @@ pub const SESSION_KEY: &str = "id";
 #[async_trait::async_trait]
 pub trait TSessionHandler: Clone {
     async fn get(&self, id: &str) -> Result<Option<String>, AuthError>;
-    async fn insert(
-        &mut self,
-        session_id: &str,
-        user_id: &str,
-    ) -> Result<String, AuthError>;
+    async fn insert(&mut self, session_id: &str, user_id: &str) -> Result<String, AuthError>;
     async fn delete(&mut self, id: &str) -> Result<(), AuthError>;
 }
 
@@ -41,14 +37,20 @@ impl InMemorySessionService {
 
     pub fn session_get(&self, session_id: &str) -> Option<String> {
         let list = self.sessions.clone();
-        let value = list.read().unwrap().get::<String>(&session_id.to_string()).cloned();
+        let value = list
+            .read()
+            .unwrap()
+            .get::<String>(&session_id.to_string())
+            .cloned();
 
         value
     }
 
     pub fn session_add(&mut self, session_id: &str, user_id: &str) {
         let list = self.sessions.clone();
-        list.write().unwrap().insert(session_id.to_string(), user_id.to_string());
+        list.write()
+            .unwrap()
+            .insert(session_id.to_string(), user_id.to_string());
     }
 
     pub fn session_delete(&mut self, key: &str) {
@@ -63,11 +65,7 @@ impl TSessionHandler for InMemorySessionService {
         Ok(self.session_get(session_id))
     }
 
-    async fn insert(
-        &mut self,
-        session_id: &str,
-        user_id: &str,
-    ) -> Result<String, AuthError> {
+    async fn insert(&mut self, session_id: &str, user_id: &str) -> Result<String, AuthError> {
         self.session_add(session_id, user_id);
 
         Ok(session_id.to_string())
@@ -101,6 +99,8 @@ impl<Cache: TCache + Clone + Sync + Send> SessionCache<Cache> {
     }
 
     pub async fn add_session(&self, session_id: &str, user_id: &str) -> Result<(), CacheError> {
-        self.cache.set(self.get_key(session_id).as_str(), user_id).await
+        self.cache
+            .set(self.get_key(session_id).as_str(), user_id)
+            .await
     }
 }

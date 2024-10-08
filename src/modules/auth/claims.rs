@@ -103,8 +103,7 @@ impl<Cache: TCache + Clone + Sync + Send> ClaimCache<Cache> {
     }
 
     pub async fn add_claim(&self, user_id: &str, claim_payload: &str) -> Result<(), CacheError> {
-        self
-            .cache
+        self.cache
             .set(self.get_key(user_id).as_str(), claim_payload)
             .await
     }

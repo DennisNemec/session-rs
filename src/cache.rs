@@ -5,14 +5,18 @@ use reqwest::StatusCode;
 #[derive(Debug)]
 pub enum CacheError {
     Redis(RedisError),
-    FormatError(serde_json::Error)
+    FormatError(serde_json::Error),
 }
 
 impl IntoResponse for CacheError {
     fn into_response(self) -> axum::response::Response {
         match self {
-            CacheError::Redis(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Redis connection error").into_response(),
-            CacheError::FormatError(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Invalid data format").into_response(),
+            CacheError::Redis(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Redis connection error").into_response()
+            }
+            CacheError::FormatError(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Invalid data format").into_response()
+            }
         }
     }
 }
@@ -21,11 +25,7 @@ impl IntoResponse for CacheError {
 pub trait TCache: Clone {
     async fn get(&self, key: &str) -> Result<Option<String>, CacheError>;
     async fn delete(&self, key: &str) -> Result<(), CacheError>;
-    async fn set(
-        &self,
-        key: &str,
-        value: &str,
-    ) -> Result<(), CacheError>;
+    async fn set(&self, key: &str, value: &str) -> Result<(), CacheError>;
 }
 
 #[derive(Clone)]
@@ -77,11 +77,7 @@ impl TCache for RedisCache {
         Ok(())
     }
 
-    async fn set(
-        &self,
-        key: &str,
-        value: &str,
-    ) -> Result<(), CacheError> {
+    async fn set(&self, key: &str, value: &str) -> Result<(), CacheError> {
         let mut connection = self
             .redis_client
             .get_multiplexed_async_connection()
@@ -89,10 +85,7 @@ impl TCache for RedisCache {
             .map_err(CacheError::Redis)?;
 
         connection
-            .set::<&str, &str, String>(
-                key,
-                value,
-            )
+            .set::<&str, &str, String>(key, value)
             .await
             .map_err(CacheError::Redis)?;
 

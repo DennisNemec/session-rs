@@ -1,7 +1,10 @@
 use std::fmt::Debug;
 
+use crate::{
+    cache::TCache,
+    modules::auth::{claims::TClaimStore, session::TSessionHandler},
+};
 use axum::{routing::get, Router};
-use crate::{cache::TCache, modules::auth::{claims::TClaimStore, session::TSessionHandler}};
 
 use super::{controller::handle_request, OAuthState, TOAuthGetPersonInfo};
 

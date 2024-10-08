@@ -36,10 +36,19 @@ impl<
         Person: TOAuthGetPersonInfo,
     > OAuthState<Cache, SessionHandler, ClaimHandler, Person>
 {
-    pub fn new(cache: Cache, session: SessionHandler, claim: ClaimHandler, auth: OAuth<Person>) -> Self {
+    pub fn new(
+        cache: Cache,
+        session: SessionHandler,
+        claim: ClaimHandler,
+        auth: OAuth<Person>,
+    ) -> Self {
         Self {
-            session_cache: SessionCache { cache: cache.clone()},
-            claim_cache: ClaimCache {cache: cache.clone()},
+            session_cache: SessionCache {
+                cache: cache.clone(),
+            },
+            claim_cache: ClaimCache {
+                cache: cache.clone(),
+            },
             session,
             claim,
             auth,

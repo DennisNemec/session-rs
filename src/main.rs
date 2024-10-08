@@ -14,7 +14,8 @@ pub mod modules;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    let cache = RedisCache::try_new("redis://localhost:6379").expect("Failed to connect to redis: {e:?}");
+    let cache =
+        RedisCache::try_new("redis://localhost:6379").expect("Failed to connect to redis: {e:?}");
     let mut session = InMemorySessionService::new();
     let mut claim = InMemoryClaimService::new();
 

@@ -28,7 +28,7 @@ pub struct GoogleMail {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GoogleMailMetadata {
-    primary: Option<bool>
+    primary: Option<bool>,
 }
 
 impl TPerson for GooglePerson {
@@ -85,8 +85,6 @@ impl TOAuthGetPersonInfo for GooglePersonEndpoint {
         let user_result = client.execute(req).await.map_err(Self::Error::HttpError)?;
         let response_text = user_result.text().await.map_err(Self::Error::HttpError)?;
 
-        Ok(
-            serde_json::from_str(&response_text).map_err(Self::Error::Json)?
-        )
+        Ok(serde_json::from_str(&response_text).map_err(Self::Error::Json)?)
     }
 }
