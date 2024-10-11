@@ -3,7 +3,7 @@
 use app::App;
 use cache::RedisCache;
 use dotenv::dotenv;
-use modules::auth::oidc::OidcConfiguration;
+use modules::oidc::OidcConfiguration;
 
 pub mod app;
 pub mod cache;

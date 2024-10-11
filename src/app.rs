@@ -10,8 +10,8 @@ use axum::{
 use reqwest::StatusCode;
 
 use crate::{
-    cache::TCache,
-    modules::auth::oidc::{oidc_auth, OidcConfiguration},
+    cache::TCache, modules::oidc::{oidc_auth, OidcConfiguration},
+
 };
 
 #[derive(Clone)]
