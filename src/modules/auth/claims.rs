@@ -1,4 +1,4 @@
-use std::{
+/*use std::{
     collections::HashMap,
     fmt::Debug,
     sync::{Arc, RwLock},
@@ -9,8 +9,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::cache::{CacheError, TCache};
-
-use super::AuthError;
 
 #[async_trait]
 pub trait TClaimStore: Clone {
@@ -67,15 +65,19 @@ impl TClaimStore for InMemoryClaimService {
         }
     }
 
-    async fn get_claim_by_mail(&self, user_id: &str) -> Result<Option<Claim>, AuthError> {
+    async fn get_claim_by_mail(&self, mail: &str) -> Result<Option<Claim>, AuthError> {
         let claims_cloned = self.claims.clone();
-        let claim = claims_cloned.read().unwrap().get(user_id).cloned();
+        let claim = claims_cloned.read().unwrap();
 
-        if claim.is_none() {
-            Ok(None)
-        } else {
-            Ok(Some(claim.unwrap()))
+        for value in claim.values() {
+            let claim_mail: String = value.payload.get("mail").unwrap().to_string().replace("\"", "");
+
+            if mail == claim_mail {
+                return Ok(Some(value.clone()));
+            }
         }
+
+        Ok(None)
     }
 }
 
@@ -107,4 +109,4 @@ impl<Cache: TCache + Clone + Sync + Send> ClaimCache<Cache> {
             .set(self.get_key(user_id).as_str(), claim_payload)
             .await
     }
-}
+}*/

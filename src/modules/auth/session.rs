@@ -1,12 +1,10 @@
-use std::{
+/*use std::{
     collections::HashMap,
     fmt::Debug,
     sync::{Arc, RwLock},
 };
 
 use crate::cache::{CacheError, TCache};
-
-use super::AuthError;
 
 pub const SESSION_KEY: &str = "id";
 
@@ -103,4 +101,4 @@ impl<Cache: TCache + Clone + Sync + Send> SessionCache<Cache> {
             .set(self.get_key(session_id).as_str(), user_id)
             .await
     }
-}
+}*/
