@@ -22,7 +22,7 @@ impl IntoResponse for CacheError {
 }
 
 #[async_trait::async_trait]
-pub trait TCache: Clone {
+pub trait TCache: Clone + Sync + Send {
     async fn get(&self, key: &str) -> Result<Option<String>, CacheError>;
     async fn delete(&self, key: &str) -> Result<(), CacheError>;
     async fn set(&self, key: &str, value: &str) -> Result<(), CacheError>;

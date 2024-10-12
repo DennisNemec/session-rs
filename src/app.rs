@@ -1,17 +1,21 @@
 use axum::{
     body::Body,
+    error_handling::HandleErrorLayer,
     extract::{Request, State},
     http::HeaderValue,
-    middleware::from_fn_with_state,
     response::{IntoResponse, Response},
     routing::get,
-    Router,
+    BoxError, Router,
 };
 use reqwest::StatusCode;
+use tower::ServiceBuilder;
 
 use crate::{
-    cache::TCache, modules::oidc::{oidc_auth, OidcConfiguration},
-
+    cache::TCache,
+    modules::{
+        oidc::{OidcConfiguration, OidcError},
+        service::AuthLayer,
+    },
 };
 
 #[derive(Clone)]
@@ -58,7 +62,7 @@ impl App {
     pub async fn run<Cache: TCache + Clone + Sync + Send + 'static>(
         address: &str,
         port: u16,
-        auth_state: OidcConfiguration<Cache>,
+        config: OidcConfiguration<Cache>,
         forward_address: &str,
     ) {
         let listener: tokio::net::TcpListener =
@@ -66,15 +70,32 @@ impl App {
                 .await
                 .expect("Not able to bind listener");
 
+        let layer = AuthLayer::new(config.clone());
+
         let router = Router::new()
             .route("/*0", get(forward_request))
             .route("/", get(forward_request))
             .with_state(GatewayConfiguration {
                 forward_address: forward_address.to_string(),
             })
-            .layer(from_fn_with_state(auth_state.clone(), oidc_auth))
-            .with_state(auth_state);
+            .layer(
+                ServiceBuilder::new()
+                    .layer(HandleErrorLayer::new(handle_oidc_error))
+                    .layer(layer),
+            );
 
         axum::serve(listener, router).await.unwrap();
+    }
+}
+
+async fn handle_oidc_error(err: BoxError) -> impl IntoResponse {
+    if err.is::<OidcError>() {
+        err.downcast::<OidcError>().unwrap().into_response()
+    } else {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Unhandled internal error: {err}"),
+        )
+            .into_response()
     }
 }

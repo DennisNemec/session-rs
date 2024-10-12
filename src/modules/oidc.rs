@@ -1,7 +1,5 @@
-use axum::extract::{Query, Request, State};
-use axum::http::HeaderValue;
-use axum::middleware::Next;
-use axum::response::{IntoResponse, Redirect, Response};
+use std::fmt::Display;
+use axum::response::{IntoResponse, Redirect};
 use axum_extra::extract::{cookie::Cookie, CookieJar};
 use bson::Uuid;
 use openidconnect::core::{CoreClient, CoreResponseType};
@@ -25,6 +23,23 @@ pub enum OidcError {
     IdTokenMissing,
     IdTokenVerificationInvalid,
 }
+
+impl Display for OidcError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OidcError::Unauthorized => f.pad(""),
+            OidcError::IdTokenVerificationInvalid => f.pad("The signature of the ID token seems to be corrupt"),
+            OidcError::IdTokenMissing => f.pad("No ID token received from OIDC provider"),
+            OidcError::ExchangeCodeError => f.pad("Error while exchanging OIDC code"),
+            OidcError::AuthSessionMissing => f.pad("No authentication session is set"),
+            OidcError::OidcDiscoveryError => f.pad("Error during OIDC provider discovery"),
+            OidcError::OAuthError => f.pad("OAuth authorization failed"),
+            OidcError::CsrfTokenMismatch => f.pad("CSRF token do not match")
+        }
+    }
+}
+
+impl std::error::Error for OidcError {}
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct UserSession {
@@ -73,7 +88,7 @@ impl IntoResponse for OidcError {
 }
 
 #[derive(Clone)]
-pub struct OidcConfiguration<Cache: TCache + Clone + Sync + Send> {
+pub struct OidcConfiguration<Cache: TCache> {
     pub client: CoreClient,
     pub callback_url: String,
     pub login_url: String,
@@ -88,11 +103,12 @@ pub struct OidcExchangeSession {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct OAuthCallbackQuery {
-    code: AuthorizationCode,
-    state: CsrfToken,
+    pub code: Option<AuthorizationCode>,
+    pub state: CsrfToken,
+    pub error: Option<String>
 }
 
-impl<Cache: TCache + Clone + Sync + Send> OidcConfiguration<Cache> {
+impl<Cache: TCache> OidcConfiguration<Cache> {
     pub async fn new(
         issuer_url: &str,
         client_id: &str,
@@ -133,58 +149,9 @@ impl<Cache: TCache + Clone + Sync + Send> OidcConfiguration<Cache> {
     }
 }
 
-const SESSION_KEY: &str = "id";
+pub const SESSION_KEY: &str = "id";
 
-pub async fn oidc_auth<Cache: TCache + Clone + Sync + Send>(
-    jar: CookieJar,
-    State(auth): State<OidcConfiguration<Cache>>,
-    mut request: Request,
-    next: Next,
-) -> Result<Response, OidcError> {
-    fn add_session_header(request: &mut Request, session: String) {
-        let mutable_header = request.headers_mut();
-
-        mutable_header.insert(
-            "Authorization",
-            HeaderValue::from_str(format!("Bearer {}", session).as_str()).unwrap(),
-        );
-    }
-
-    let session_key = jar.get(SESSION_KEY).map(|c| c.value());
-
-    if let Some(s) = session_key {
-        if let Some(serialized_session) = auth
-            .cache
-            .get(format!("claim:{s}").as_str())
-            .await
-            .map_err(|_| OidcError::OAuthError)?
-        {
-            let session = serde_json::from_str::<UserSession>(&serialized_session).unwrap();
-            add_session_header(&mut request, session.id_token);
-            return Ok(next.run(request).await);
-        }
-    }
-
-    let path = Some(request.uri().path().to_string());
-    if let Some(v) = path {
-        if v == auth.login_url {
-            return Ok(handle_login_request(&auth, &jar).await?.into_response());
-        } else if v == auth.callback_url {
-            let Query(OAuthCallbackQuery { code, state }) =
-                Query::try_from_uri(request.uri()).unwrap();
-
-            return Ok(handle_oauth_callback(&jar, code, state, &auth)
-                .await?
-                .into_response());
-        } else {
-            return Ok(Redirect::to(&auth.login_url).into_response());
-        }
-    }
-
-    Ok(next.run(request).await)
-}
-
-pub async fn handle_login_request<Cache: TCache + Clone + Sync + Send>(
+pub async fn handle_login_request<Cache: TCache>(
     auth: &OidcConfiguration<Cache>,
     jar: &CookieJar,
 ) -> Result<impl IntoResponse, OidcError> {
@@ -214,7 +181,7 @@ pub async fn handle_login_request<Cache: TCache + Clone + Sync + Send>(
     Ok((jar.clone().add(session_id), Redirect::to(auth_url.as_str())))
 }
 
-pub async fn handle_oauth_callback<Cache: TCache + Clone + Sync + Send>(
+pub async fn handle_oauth_callback<Cache: TCache>(
     jar: &CookieJar,
     code: AuthorizationCode,
     csrf_token: CsrfToken,
@@ -250,7 +217,7 @@ pub async fn handle_oauth_callback<Cache: TCache + Clone + Sync + Send>(
 
     let identifier = auth.client.id_token_verifier();
     let id_token = token.extra_fields().id_token();
-    if let None = id_token {
+    if id_token.is_none() {
         return Err(OidcError::IdTokenMissing);
     }
 
