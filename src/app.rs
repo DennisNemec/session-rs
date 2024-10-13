@@ -12,10 +12,11 @@ use tower::ServiceBuilder;
 
 use crate::{
     cache::TCache,
-    modules::{
-        oidc::{OidcConfiguration, OidcError},
+    oidc::{
+        controller::{OidcConfiguration, OidcError},
         service::AuthLayer,
     },
+    session::TSessionStore,
 };
 
 #[derive(Clone)]
@@ -59,10 +60,12 @@ async fn forward_request(
 }
 
 impl App {
-    pub async fn run<Cache: TCache + Clone + Sync + Send + 'static>(
+    pub async fn run<Cache: TCache + Clone + Send + 'static, S: TSessionStore + Clone + Send + 'static>(
         address: &str,
         port: u16,
-        config: OidcConfiguration<Cache>,
+        config: OidcConfiguration,
+        cache: Cache,
+        store: S,
         forward_address: &str,
     ) {
         let listener: tokio::net::TcpListener =
@@ -70,7 +73,7 @@ impl App {
                 .await
                 .expect("Not able to bind listener");
 
-        let layer = AuthLayer::new(config.clone());
+        let layer = AuthLayer::new(config.clone(), store.clone(), cache.clone());
 
         let router = Router::new()
             .route("/*0", get(forward_request))

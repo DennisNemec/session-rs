@@ -1,16 +1,23 @@
-use std::fmt::Display;
 use axum::response::{IntoResponse, Redirect};
 use axum_extra::extract::{cookie::Cookie, CookieJar};
 use bson::Uuid;
-use openidconnect::core::{CoreClient, CoreResponseType};
+use openidconnect::core::{
+    CoreAuthDisplay, CoreClaimName, CoreClaimType, CoreClient, CoreClientAuthMethod, CoreGrantType,
+    CoreJsonWebKey, CoreJsonWebKeyType, CoreJsonWebKeyUse, CoreJweContentEncryptionAlgorithm,
+    CoreJweKeyManagementAlgorithm, CoreJwsSigningAlgorithm, CoreResponseMode, CoreResponseType,
+    CoreSubjectIdentifierType,
+};
 use openidconnect::reqwest::async_http_client;
-use openidconnect::{core::CoreProviderMetadata, IssuerUrl};
-use openidconnect::{AuthenticationFlow, Nonce};
+use openidconnect::{
+    AdditionalProviderMetadata, AuthenticationFlow, IssuerUrl, Nonce, OAuth2TokenResponse, ProviderMetadata, RevocationUrl
+};
 use openidconnect::{AuthorizationCode, ClientId, ClientSecret, CsrfToken, RedirectUrl, Scope};
 use reqwest::{StatusCode, Url};
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 
 use crate::cache::TCache;
+use crate::session::{Session, TSessionStore};
 
 #[derive(Debug)]
 pub enum OidcError {
@@ -28,13 +35,15 @@ impl Display for OidcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OidcError::Unauthorized => f.pad(""),
-            OidcError::IdTokenVerificationInvalid => f.pad("The signature of the ID token seems to be corrupt"),
+            OidcError::IdTokenVerificationInvalid => {
+                f.pad("The signature of the ID token seems to be corrupt")
+            }
             OidcError::IdTokenMissing => f.pad("No ID token received from OIDC provider"),
             OidcError::ExchangeCodeError => f.pad("Error while exchanging OIDC code"),
             OidcError::AuthSessionMissing => f.pad("No authentication session is set"),
             OidcError::OidcDiscoveryError => f.pad("Error during OIDC provider discovery"),
             OidcError::OAuthError => f.pad("OAuth authorization failed"),
-            OidcError::CsrfTokenMismatch => f.pad("CSRF token do not match")
+            OidcError::CsrfTokenMismatch => f.pad("CSRF token do not match"),
         }
     }
 }
@@ -88,15 +97,15 @@ impl IntoResponse for OidcError {
 }
 
 #[derive(Clone)]
-pub struct OidcConfiguration<Cache: TCache> {
+pub struct OidcConfiguration {
     pub client: CoreClient,
     pub callback_url: String,
     pub login_url: String,
-    pub cache: Cache,
+    pub logout_url: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct OidcExchangeSession {
+pub struct OidcSecurityInformation {
     pub old_csrf: CsrfToken,
     pub nonce: Nonce,
 }
@@ -105,10 +114,33 @@ pub struct OidcExchangeSession {
 pub struct OAuthCallbackQuery {
     pub code: Option<AuthorizationCode>,
     pub state: CsrfToken,
-    pub error: Option<String>
+    pub error: Option<String>,
 }
 
-impl<Cache: TCache> OidcConfiguration<Cache> {
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct RevocationEndpointProviderMetadata {
+    revocation_endpoint: String,
+}
+impl AdditionalProviderMetadata for RevocationEndpointProviderMetadata {}
+type CustomProviderMetadata = ProviderMetadata<
+    RevocationEndpointProviderMetadata,
+    CoreAuthDisplay,
+    CoreClientAuthMethod,
+    CoreClaimName,
+    CoreClaimType,
+    CoreGrantType,
+    CoreJweContentEncryptionAlgorithm,
+    CoreJweKeyManagementAlgorithm,
+    CoreJwsSigningAlgorithm,
+    CoreJsonWebKeyType,
+    CoreJsonWebKeyUse,
+    CoreJsonWebKey,
+    CoreResponseMode,
+    CoreResponseType,
+    CoreSubjectIdentifierType,
+>;
+
+impl OidcConfiguration {
     pub async fn new(
         issuer_url: &str,
         client_id: &str,
@@ -116,23 +148,31 @@ impl<Cache: TCache> OidcConfiguration<Cache> {
         redirect_uri: &str,
         callback_url: &str,
         login_url: &str,
-        cache: Cache,
+        logout_url: &str,
     ) -> Result<Self, OidcError> {
+        let provider_metadata = CustomProviderMetadata::discover_async(
+            IssuerUrl::new(issuer_url.to_string()).unwrap(),
+            async_http_client,
+        )
+        .await
+        .map_err(|_| OidcError::OidcDiscoveryError)?;
+
+        let revocation_url = provider_metadata
+            .additional_metadata()
+            .revocation_endpoint
+            .clone();
+
         Ok(Self {
+            logout_url: logout_url.to_string(),
             callback_url: callback_url.to_string(),
-            cache,
             login_url: login_url.to_string(),
             client: CoreClient::from_provider_metadata(
-                CoreProviderMetadata::discover_async(
-                    IssuerUrl::new(issuer_url.to_string()).unwrap(),
-                    async_http_client,
-                )
-                .await
-                .map_err(|_| OidcError::OidcDiscoveryError)?,
+                provider_metadata,
                 ClientId::new(client_id.to_string()),
                 Some(ClientSecret::new(client_secret.to_string())),
             )
-            .set_redirect_uri(RedirectUrl::new(redirect_uri.to_string()).unwrap()),
+            .set_redirect_uri(RedirectUrl::new(redirect_uri.to_string()).unwrap())
+            .set_revocation_uri(RevocationUrl::new(revocation_url).unwrap()),
         })
     }
 
@@ -152,12 +192,13 @@ impl<Cache: TCache> OidcConfiguration<Cache> {
 pub const SESSION_KEY: &str = "id";
 
 pub async fn handle_login_request<Cache: TCache>(
-    auth: &OidcConfiguration<Cache>,
+    auth: &OidcConfiguration,
     jar: &CookieJar,
+    cache: &Cache,
 ) -> Result<impl IntoResponse, OidcError> {
     let (auth_url, old_token, nonce) = auth.authorize_url();
 
-    let authentification_session = OidcExchangeSession {
+    let authentification_session = OidcSecurityInformation {
         old_csrf: old_token,
         nonce,
     };
@@ -168,7 +209,7 @@ pub async fn handle_login_request<Cache: TCache>(
         Cookie::new(SESSION_KEY, Uuid::new().to_string())
     };
 
-    auth.cache
+    cache
         .set(
             format!("auth:{}", session_id.value()).as_str(),
             serde_json::to_string(&authentification_session)
@@ -181,11 +222,13 @@ pub async fn handle_login_request<Cache: TCache>(
     Ok((jar.clone().add(session_id), Redirect::to(auth_url.as_str())))
 }
 
-pub async fn handle_oauth_callback<Cache: TCache>(
+pub async fn handle_oauth_callback<Cache: TCache, S: TSessionStore>(
     jar: &CookieJar,
     code: AuthorizationCode,
     csrf_token: CsrfToken,
-    auth: &OidcConfiguration<Cache>,
+    auth: &OidcConfiguration,
+    cache: &Cache,
+    store: &S
 ) -> Result<impl IntoResponse, OidcError> {
     let session_key = if let Some(s) = jar.get(SESSION_KEY).map(|c| c.value()) {
         s
@@ -193,13 +236,12 @@ pub async fn handle_oauth_callback<Cache: TCache>(
         return Err(OidcError::AuthSessionMissing);
     };
 
-    let auth_session = if let Some(serialized_auth_session) = auth
-        .cache
+    let auth_session = if let Some(serialized_auth_session) = cache
         .get(format!("auth:{session_key}").as_str())
         .await
         .map_err(|_| OidcError::OAuthError)?
     {
-        serde_json::from_str::<OidcExchangeSession>(&serialized_auth_session).unwrap()
+        serde_json::from_str::<OidcSecurityInformation>(&serialized_auth_session).unwrap()
     } else {
         return Err(OidcError::AuthSessionMissing);
     };
@@ -225,18 +267,15 @@ pub async fn handle_oauth_callback<Cache: TCache>(
         .unwrap()
         .claims(&identifier, &auth_session.nonce)
         .map_err(|_| OidcError::IdTokenVerificationInvalid)?;
-
-    let user_session = UserSession {
+    
+    let session = Session {
+        session_id: Uuid::parse_str(session_key).unwrap(),
+        user_id: None,
+        access_token: token.access_token().secret().to_string(),
         id_token: id_token.unwrap().to_string(),
     };
 
-    auth.cache
-        .set(
-            format!("claim:{session_key}").as_str(),
-            serde_json::to_string(&user_session).unwrap().as_str(),
-        )
-        .await
-        .map_err(|_| OidcError::OAuthError)?;
+    store.set(&session).await.map_err(|_| OidcError::OAuthError)?;
 
     Ok(Redirect::to("/"))
 }
