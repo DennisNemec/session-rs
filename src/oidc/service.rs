@@ -2,36 +2,34 @@ use axum::{
     body::Body,
     extract::{Query, Request},
     http::{HeaderValue, Uri},
-    response::{IntoResponse, Response, Redirect},
+    response::{IntoResponse, Redirect, Response},
 };
 use axum_extra::extract::CookieJar;
 use futures_util::future::BoxFuture;
-use openidconnect::{
-    reqwest::async_http_client, AccessToken
-};
+use openidconnect::{reqwest::async_http_client, AccessToken};
 use reqwest::Method;
 use tower::{Layer, Service};
 
 use crate::{
     cache::TCache,
     oidc::controller::{
-        handle_login_request, handle_oauth_callback, OAuthCallbackQuery, OidcError,
-        SESSION_KEY,
+        handle_login_request, handle_oauth_callback,
     },
     session::{Session, SessionError, TSessionStore},
 };
 
-use super::controller::OidcConfiguration;
+use super::{OAuthCallbackQuery, OidcState, OidcError, SESSION_KEY};
+
 
 #[derive(Clone)]
 pub struct AuthLayer<T: TSessionStore + Clone, C: TCache> {
-    config: OidcConfiguration,
+    config: OidcState,
     cache: C,
     store: T,
 }
 
 impl<T: TSessionStore + Clone, C: TCache> AuthLayer<T, C> {
-    pub fn new(config: OidcConfiguration, store: T, cache: C) -> Self {
+    pub fn new(config: OidcState, store: T, cache: C) -> Self {
         Self {
             config,
             cache,
@@ -53,17 +51,16 @@ impl<S, T: TSessionStore + Clone, C: TCache> Layer<S> for AuthLayer<T, C> {
     }
 }
 
-
 #[derive(Clone)]
 pub struct OpenIdConnectService<S, T: TSessionStore + Clone, C: TCache> {
     inner: S,
-    oidc_config: OidcConfiguration,
+    oidc_config: OidcState,
     store: T,
     cache: C,
 }
 
 impl<S, T: TSessionStore + Clone, C: TCache> OpenIdConnectService<S, T, C> {
-    pub fn new(inner: S, oidc_config: OidcConfiguration, store: T, cache: C) -> Self {
+    pub fn new(inner: S, oidc_config: OidcState, store: T, cache: C) -> Self {
         Self {
             inner,
             oidc_config,
@@ -74,7 +71,7 @@ impl<S, T: TSessionStore + Clone, C: TCache> OpenIdConnectService<S, T, C> {
 
     async fn handle_logout<HC: TCache>(
         session: Session,
-        auth: &OidcConfiguration,
+        auth: &OidcState,
         cache: HC,
     ) -> Result<(), SessionError> {
         let access_token = AccessToken::new(session.access_token);
@@ -97,11 +94,11 @@ impl<S, T: TSessionStore + Clone, C: TCache> OpenIdConnectService<S, T, C> {
     }
 
     async fn handle_oidc_callback<HC: TCache, SS: TSessionStore>(
-        auth: &OidcConfiguration,
+        auth: &OidcState,
         cache: HC,
         jar: &CookieJar,
         uri: &Uri,
-        store: &SS
+        store: &SS,
     ) -> Result<Response<Body>, BoxError> {
         let Query(OAuthCallbackQuery { code, state, error }) =
             if let Ok(query) = Query::try_from_uri(uri) {
@@ -206,7 +203,8 @@ where
 
                 // Handle the request form the OIDC provider after authentication
                 } else if *path == auth.callback_url {
-                    return Self::handle_oidc_callback(&auth, cache, &jar, request.uri(), &store).await;
+                    return Self::handle_oidc_callback(&auth, cache, &jar, request.uri(), &store)
+                        .await;
                 } else if *path == auth.logout_url {
                     // No session exists to be logged out. Redirect to home
                     return Ok(Redirect::to("/").into_response());
@@ -219,3 +217,4 @@ where
         })
     }
 }
+

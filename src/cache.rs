@@ -92,8 +92,3 @@ impl TCache for RedisCache {
         Ok(())
     }
 }
-
-#[derive(Clone)]
-pub struct RedisCacheState {
-    pub cache: RedisCache,
-}

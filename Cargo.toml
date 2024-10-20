@@ -1,5 +1,5 @@
 [package]
-name = "session-rs"
+name = "api-gateway-rs"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,12 +8,13 @@ async-trait = "0.1.83"
 axum = { version = "0.7.7", features = ["macros"] }
 axum-extra = { version = "0.9.4", features = ["cookie"] }
 bson = { version = "2.13.0", features = ["uuid-1"] }
-dotenv = "0.15.0"
 futures-util = "0.3.31"
 openidconnect = "3.5.0"
+pin-project = "1.1.6"
 redis = { version = "0.27.3", features = ["tokio-comp"] }
 reqwest = { version = "0.12.8", features = ["stream"] }
 serde = "1.0.210"
 serde_json = "1.0.128"
+serde_yml = "0.0.12"
 tokio = { version = "1.40.0", features = ["full"] }
 tower = "0.5.1"

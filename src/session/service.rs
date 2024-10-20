@@ -2,7 +2,7 @@ use axum::{body::Body, extract::Request, response::Response, BoxError};
 use futures_util::future::BoxFuture;
 use tower::{Layer, Service};
 
-use crate::{cache::TCache, oidc::controller::OidcError};
+use crate::{cache::TCache, oidc::OidcError};
 
 #[derive(Clone)]
 pub struct SessionLayer<C: TCache> {

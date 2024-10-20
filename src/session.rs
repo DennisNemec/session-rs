@@ -135,7 +135,7 @@ impl<C: TCache, S: TSessionStore + Sync> TSessionStore for CachedSessionStore<C,
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Deserialize, Debug)]
 pub struct SessionStore {
     endpoint_url: String,
 }

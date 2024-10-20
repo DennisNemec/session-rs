@@ -1,0 +1,19 @@
+address: "localhost"
+port: 8080
+paths:
+  - path: "/"
+    dst_addr: "http://localhost:8081"
+  - path: "/test"
+    dst_addr: "http://localhost:8082"
+store:
+  endpoint_url: "http://localhost:8081"
+cache:
+  url: "redis://localhost:6379"
+oidc:
+  issuer_url: "https://accounts.google.com"
+  client_id: ""
+  client_secret: ""
+  redirect_uri: "http://localhost:8080/auth/callback"
+  callback_path: "/auth/callback"
+  login_path: "/login"
+  logout_path: "/logout"
